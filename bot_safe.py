@@ -3,40 +3,78 @@ from discord.ext import commands, tasks
 import asyncio
 import json
 import random
+import base64
 from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
+import aiohttp
 
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 
-MIN_DELAY = 45
-MAX_DELAY = 180
-REQUEST_TIMEOUT = 15
-MISSIONS_PER_HOUR = 8
-REQUESTS_PER_MINUTE = 2
+MIN_DELAY = 30
+MAX_DELAY = 90
+ORBS_API = "https://discord.com/api/v10/users/@me/quests"
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-MISSIONS_FILE = "missions.json"
+ORBS_FILE = "orbs_progress.json"
 request_tracker = {"last_request": datetime.now(), "count_this_minute": 0}
 
-def load_missions():
+def load_orbs_data():
     try:
-        with open(MISSIONS_FILE, 'r') as f:
+        with open(ORBS_FILE, 'r') as f:
             return json.load(f)
     except:
-        return {"active": [], "completed": [], "failed": []}
+        return {"completed": [], "failed": [], "last_sync": None}
 
-def save_missions(data):
-    with open(MISSIONS_FILE, 'w') as f:
+def save_orbs_data(data):
+    with open(ORBS_FILE, 'w') as f:
         json.dump(data, f, indent=2)
 
 def get_human_delay():
     return random.uniform(MIN_DELAY, MAX_DELAY)
+
+def get_auth_token():
+    """Extrai token de DISCORD_TOKEN (format: bot-token)"""
+    return DISCORD_TOKEN.split('.')[-1] if '.' in DISCORD_TOKEN else DISCORD_TOKEN
+
+async def fetch_orbs_quests(session):
+    """Busca quests/orbs disponiveis"""
+    headers = {
+        "Authorization": DISCORD_TOKEN,
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0"
+    }
+    
+    try:
+        async with session.get(ORBS_API, headers=headers, timeout=15) as resp:
+            if resp.status == 200:
+                return await resp.json()
+            return None
+    except Exception as e:
+        print(f"❌ Erro fetching orbs: {e}")
+        return None
+
+async def complete_orb_quest(session, quest_id):
+    """Marca quest como completada"""
+    headers = {
+        "Authorization": DISCORD_TOKEN,
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0"
+    }
+    
+    url = f"{ORBS_API}/{quest_id}/progress"
+    
+    try:
+        async with session.post(url, headers=headers, json={"progress": 100}, timeout=15) as resp:
+            return resp.status in [200, 201]
+    except Exception as e:
+        print(f"❌ Erro completing quest {quest_id}: {e}")
+        return False
 
 async def respect_rate_limit():
     global request_tracker
@@ -62,107 +100,99 @@ async def on_ready():
     if not mission_automation.is_running():
         mission_automation.start()
 
-@bot.command(name='adicionar')
-async def add_mission(ctx, *, mission_text):
+@bot.command(name='orbs')
+async def orbs_command(ctx, action="status"):
+    """Controla automação de orbs: !orbs status, !orbs start, !orbs stop"""
     await respect_rate_limit()
     
-    data = load_missions()
-    mission = {
-        "id": len(data["active"]) + len(data["completed"]) + 1,
-        "text": mission_text,
-        "created": datetime.now().isoformat(),
-        "attempts": 0,
-        "last_attempt": None,
-        "status": "queued"
-    }
+    if action == "status":
+        data = load_orbs_data()
+        embed = discord.Embed(title="🔮 Orbs Status", color=discord.Color.purple())
+        embed.add_field(name="Completadas", value=len(data["completed"]), inline=True)
+        embed.add_field(name="Falhadas", value=len(data["failed"]), inline=True)
+        embed.add_field(name="Última sync", value=data["last_sync"] or "Nunca", inline=False)
+        await ctx.send(embed=embed)
     
-    data["active"].append(mission)
-    save_missions(data)
+    elif action == "start":
+        if orbs_loop.is_running():
+            await ctx.send("⚠️ Automação já está rodando")
+        else:
+            orbs_loop.start()
+            await ctx.send("✅ Automação de orbs iniciada")
     
-    embed = discord.Embed(
-        title="✅ Missão na fila",
-        description=f"{mission_text[:100]}",
-        color=discord.Color.green()
-    )
-    embed.set_footer(text=f"Será executada com delay aleatório")
+    elif action == "stop":
+        if orbs_loop.is_running():
+            orbs_loop.stop()
+            await ctx.send("⏹️ Automação parada")
+        else:
+            await ctx.send("⚠️ Automação não está rodando")
     
-    await ctx.send(embed=embed)
+    else:
+        await ctx.send("Uso: `!orbs status` | `!orbs start` | `!orbs stop`")
 
-@bot.command(name='status')
-async def mission_status(ctx):
-    await respect_rate_limit()
-    data = load_missions()
-    
-    embed = discord.Embed(title="📊 Status das Missões", color=discord.Color.blue())
-    embed.add_field(name="Ativas", value=len(data["active"]), inline=True)
-    embed.add_field(name="Completadas", value=len(data["completed"]), inline=True)
-    embed.add_field(name="Falhadas", value=len(data["failed"]), inline=True)
-    
-    await ctx.send(embed=embed)
-
-@bot.command(name='missoes')
-async def list_missions(ctx):
-    await respect_rate_limit()
-    data = load_missions()
-    
-    if not data["active"]:
-        await ctx.send("Nenhuma missão ativa")
-        return
-    
-    embed = discord.Embed(title="📋 Missões Ativas", color=discord.Color.blue())
-    
-    for m in data["active"][:10]:
-        embed.add_field(
-            name=f"ID: {m['id']}",
-            value=f"{m['text'][:60]}\nTentativas: {m['attempts']}",
-            inline=False
-        )
-    
-    await ctx.send(embed=embed)
-
-@bot.command(name='limpar')
-async def clear_completed(ctx):
-    data = load_missions()
+@bot.command(name='clear')
+async def clear_orbs_data(ctx):
+    """Limpa histórico de orbs completados"""
+    data = load_orbs_data()
     count = len(data["completed"])
     data["completed"] = []
-    save_missions(data)
-    await ctx.send(f"✅ {count} missões limpas")
+    data["failed"] = []
+    save_orbs_data(data)
+    await ctx.send(f"✅ {count} orbs removidos do histórico")
 
-@tasks.loop(minutes=10)
-async def mission_automation():
-    data = load_missions()
+@tasks.loop(minutes=5)
+async def orbs_loop():
+    """Automação de orbs - fetch e completa quests"""
+    data = load_orbs_data()
     
-    if not data["active"]:
-        return
-    
-    missions_to_process = data["active"][:random.randint(1, 2)]
-    
-    for mission in missions_to_process:
-        try:
-            await respect_rate_limit()
+    async with aiohttp.ClientSession() as session:
+        await respect_rate_limit()
+        
+        # Busca orbs disponiveis
+        quests = await fetch_orbs_quests(session)
+        
+        if not quests:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Nenhum quest disponível")
+            return
+        
+        # Processa 1-2 quests por ciclo (anti-detection)
+        quests_to_complete = quests[:random.randint(1, 2)] if isinstance(quests, list) else []
+        
+        for quest in quests_to_complete:
+            try:
+                quest_id = quest.get("id", "")
+                quest_name = quest.get("title", "Unknown")
+                
+                await respect_rate_limit()
+                delay = get_human_delay()
+                await asyncio.sleep(delay)
+                
+                # Completa o quest
+                success = await complete_orb_quest(session, quest_id)
+                
+                if success:
+                    data["completed"].append({
+                        "id": quest_id,
+                        "name": quest_name,
+                        "completed_at": datetime.now().isoformat()
+                    })
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Orb: {quest_name}")
+                else:
+                    data["failed"].append({
+                        "id": quest_id,
+                        "name": quest_name,
+                        "failed_at": datetime.now().isoformat()
+                    })
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] ❌ Falha: {quest_name}")
             
-            delay = get_human_delay()
-            await asyncio.sleep(delay)
-            
-            mission["attempts"] += 1
-            mission["last_attempt"] = datetime.now().isoformat()
-            mission["status"] = "completed"
-            
-            data["completed"].append(mission)
-            data["active"].remove(mission)
-            
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ {mission['text'][:50]}")
-            
-        except Exception as e:
-            print(f"❌ Erro: {e}")
-            mission["status"] = "failed"
-            data["failed"].append(mission)
-            data["active"].remove(mission)
-    
-    save_missions(data)
+            except Exception as e:
+                print(f"❌ Erro processando quest: {e}")
+        
+        data["last_sync"] = datetime.now().isoformat()
+        save_orbs_data(data)
 
-@mission_automation.before_loop
-async def before_mission_loop():
+@orbs_loop.before_loop
+async def before_orbs_loop():
     await bot.wait_until_ready()
 
 if __name__ == "__main__":
