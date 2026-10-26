@@ -19,7 +19,8 @@ ORBS_API = "https://discord.com/api/v10/users/@me/quests"
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='/', intents=intents)
+tree = discord.app_commands.CommandTree(bot)
 
 ORBS_FILE = "orbs_progress.json"
 request_tracker = {"last_request": datetime.now(), "count_this_minute": 0}
@@ -97,12 +98,21 @@ async def on_ready():
     print(f'✅ {bot.user} conectado')
     print(f'🔒 Anti-detection ativo: delays {MIN_DELAY}-{MAX_DELAY}s')
     print(f'👤 User ID: {bot.user.id}')
-    if not mission_automation.is_running():
-        mission_automation.start()
+    
+    try:
+        synced = await tree.sync()
+        print(f'📋 {len(synced)} slash commands sincronizados')
+    except Exception as e:
+        print(f'❌ Erro sincronizando comandos: {e}')
+    
+    if not orbs_loop.is_running():
+        orbs_loop.start()
 
-@bot.command(name='orbs')
-async def orbs_command(ctx, action="status"):
-    """Controla automação de orbs: !orbs status, !orbs start, !orbs stop"""
+@tree.command(name="orbs", description="Controla automação de orbs")
+@discord.app_commands.describe(action="status, start ou stop")
+async def orbs_command(interaction: discord.Interaction, action: str = "status"):
+    """Controla automação de orbs: /orbs status, /orbs start, /orbs stop"""
+    await interaction.response.defer()
     await respect_rate_limit()
     
     if action == "status":
@@ -111,34 +121,35 @@ async def orbs_command(ctx, action="status"):
         embed.add_field(name="Completadas", value=len(data["completed"]), inline=True)
         embed.add_field(name="Falhadas", value=len(data["failed"]), inline=True)
         embed.add_field(name="Última sync", value=data["last_sync"] or "Nunca", inline=False)
-        await ctx.send(embed=embed)
+        await interaction.followup.send(embed=embed)
     
     elif action == "start":
         if orbs_loop.is_running():
-            await ctx.send("⚠️ Automação já está rodando")
+            await interaction.followup.send("⚠️ Automação já está rodando")
         else:
             orbs_loop.start()
-            await ctx.send("✅ Automação de orbs iniciada")
+            await interaction.followup.send("✅ Automação de orbs iniciada")
     
     elif action == "stop":
         if orbs_loop.is_running():
             orbs_loop.stop()
-            await ctx.send("⏹️ Automação parada")
+            await interaction.followup.send("⏹️ Automação parada")
         else:
-            await ctx.send("⚠️ Automação não está rodando")
+            await interaction.followup.send("⚠️ Automação não está rodando")
     
     else:
-        await ctx.send("Uso: `!orbs status` | `!orbs start` | `!orbs stop`")
+        await interaction.followup.send("Uso: `/orbs status` | `/orbs start` | `/orbs stop`")
 
-@bot.command(name='clear')
-async def clear_orbs_data(ctx):
+@tree.command(name="clear", description="Limpa histórico de orbs")
+async def clear_orbs_data(interaction: discord.Interaction):
     """Limpa histórico de orbs completados"""
+    await interaction.response.defer()
     data = load_orbs_data()
     count = len(data["completed"])
     data["completed"] = []
     data["failed"] = []
     save_orbs_data(data)
-    await ctx.send(f"✅ {count} orbs removidos do histórico")
+    await interaction.followup.send(f"✅ {count} orbs removidos do histórico")
 
 @tasks.loop(minutes=5)
 async def orbs_loop():
