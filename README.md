@@ -26,9 +26,9 @@ No Railway, vai em **Project → Variables** e adiciona:
 
 ```
 DISCORD_TOKEN=seu_token_bot_aqui
-CHANNEL_ID=seu_channel_id
-USER_ID=seu_user_id
 ```
+
+**Pronto!** O bot extrai automaticamente o User ID do token.
 
 ### 4. Deploy
 
@@ -74,15 +74,9 @@ Clica "Deploy" e aguarda.
 1. https://discord.com/developers/applications
 2. New Application → Name your app
 3. Bot section → Add Bot
-4. TOKEN → Copy
+4. TOKEN → Copy (cole em Railway Variables)
 
-## ⚙️ Obter IDs
-
-### Channel ID:
-Discord → Settings → Developer Mode ON → Right-click channel → Copy ID
-
-### User ID:
-Right-click user → Copy User ID
+**User ID é extraído automaticamente do token.**
 
 ---
 
