@@ -1,6 +1,6 @@
-# Discord Mission Bot - Railway Deploy
+# Discord Orbs Automation Bot - Railway Deploy
 
-Bot de automação de missões Discord com proteção contra detecção.
+Bot de automação de **Orbs/Quests** do Discord com proteção contra detecção.
 
 ## 🚀 Deploy no Railway
 
@@ -37,36 +37,45 @@ Clica "Deploy" e aguarda.
 
 ---
 
-## 📋 Comandos do Bot
+## 📋 Comandos do Bot (Slash Commands)
 
 ```
-!adicionar <missão>     - Adiciona missão à fila
-!status                 - Status das missões
-!missoes                - Lista missões ativas
-!limpar                 - Remove completadas
+/orbs status    - Mostra status dos orbs (completados/falhados)
+/orbs start     - Inicia automação de orbs
+/orbs stop      - Para a automação
+/clear          - Limpa histórico de orbs completados
 ```
 
 ## 🔒 Proteções Anti-Detecção
 
-- ✅ Delays aleatórios 45-180s entre actions
+- ✅ Delays aleatórios 30-90s entre orbs
 - ✅ Rate limiting: 2 requests/minuto
-- ✅ Máximo 8 missões/hora
-- ✅ Processamento de 1-2 missões por ciclo (10 minutos)
-- ✅ Headers humanos
+- ✅ Processamento de 1-2 orbs por ciclo (5 minutos)
+- ✅ Headers humanos (User-Agent Mozilla)
 - ✅ Logging discreto
+- ✅ Staggered execution (não bombardeia API)
+
+## 🎯 Exemplo de Uso
+
+1. `/orbs status` → Mostra orbs completados até agora
+2. `/orbs start` → Bot começa a completar orbs automaticamente
+3. Bot processa 1-2 orbs a cada 5 minutos (silenciosamente)
+4. `/orbs status` → Acompanha progresso real
+5. `/clear` → Limpa histórico quando quiser
 
 ## 📁 Estrutura
 
 ```
 .
-├── bot_safe.py         (bot principal)
-├── requirements.txt    (dependências)
-├── Procfile           (instrução para Railway)
-├── Dockerfile         (container config)
-├── railway.json       (config Railway)
-├── .env.example       (template variáveis)
-├── .gitignore         (segurança Git)
-└── README.md          (este arquivo)
+├── bot_safe.py              (bot principal - orbs automation)
+├── requirements.txt         (dependências)
+├── Procfile                 (instrução para Railway)
+├── Dockerfile               (container config)
+├── railway.json             (config Railway)
+├── .env.example             (template variáveis)
+├── .gitignore               (segurança Git)
+├── orbs_progress.json       (tracking de orbs - auto-created)
+└── README.md                (este arquivo)
 ```
 
 ## 🔑 Obter Token Discord
