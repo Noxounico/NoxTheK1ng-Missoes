@@ -10,8 +10,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0")) if os.getenv("CHANNEL_ID") else None
-USER_ID = int(os.getenv("USER_ID", "0")) if os.getenv("USER_ID") else None
 
 MIN_DELAY = 45
 MAX_DELAY = 180
@@ -60,7 +58,9 @@ async def respect_rate_limit():
 async def on_ready():
     print(f'✅ {bot.user} conectado')
     print(f'🔒 Anti-detection ativo: delays {MIN_DELAY}-{MAX_DELAY}s')
-    mission_automation.start()
+    print(f'👤 User ID: {bot.user.id}')
+    if not mission_automation.is_running():
+        mission_automation.start()
 
 @bot.command(name='adicionar')
 async def add_mission(ctx, *, mission_text):
