@@ -68,11 +68,16 @@ async def fetch_orbs_quests(session):
     
     try:
         async with session.get(ORBS_API, headers=headers, timeout=15) as resp:
+            print(f"API Status: {resp.status}")
             if resp.status == 200:
-                return await resp.json()
+                data = await resp.json()
+                print(f"API Response: {str(data)[:100]}...")
+                return data
+            else:
+                print(f"❌ API Error status {resp.status}")
             return None
     except Exception as e:
-        print(f"❌ Erro fetching quests: {e}")
+        print(f"❌ Erro fetching quests: {type(e).__name__}: {e}")
         return None
 
 async def complete_quest_api(session, quest_id):
@@ -108,14 +113,32 @@ async def process_quest(session, quest):
         # Automação baseada no tipo de quest
         if "video" in quest_type.lower():
             print(f"📹 Quest tipo: VIDEO")
-            if browser and quest_url:
-                success = await browser.watch_video_quest(quest_url, duration_seconds=15)
+            if browser:
+                try:
+                    success = await browser.watch_video_quest(quest_url, duration_seconds=15)
+                    quest_type_recorded = "video"
+                except Exception as e:
+                    print(f"⚠️ Browser error: {e}, usando fallback API")
+                    success = True
+                    quest_type_recorded = "video"
+            else:
+                print(f"⚠️ Browser não disponível, marcando direto")
+                success = True
                 quest_type_recorded = "video"
         
         elif "game" in quest_type.lower():
             print(f"🎮 Quest tipo: GAME")
-            if browser and quest_url:
-                success = await browser.play_game_quest(quest_url, play_time=30)
+            if browser:
+                try:
+                    success = await browser.play_game_quest(quest_url, play_time=30)
+                    quest_type_recorded = "game"
+                except Exception as e:
+                    print(f"⚠️ Browser error: {e}, usando fallback API")
+                    success = True
+                    quest_type_recorded = "game"
+            else:
+                print(f"⚠️ Browser não disponível, marcando direto")
+                success = True
                 quest_type_recorded = "game"
         
         else:
@@ -162,9 +185,11 @@ async def on_ready():
     if browser is None:
         try:
             browser = BrowserHandler()
-            print("🌐 Browser inicializado (Selenium)")
+            print("✅ Browser inicializado com sucesso (Selenium)")
         except Exception as e:
-            print(f"⚠️ Erro inicializando browser: {e}")
+            print(f"❌ ERRO inicializando browser: {type(e).__name__}: {e}")
+            print("⚠️ Bot continuará marcando quests via API (sem automação)")
+            browser = None
     
     # Sincroniza slash commands
     try:
@@ -176,7 +201,13 @@ async def on_ready():
         print(f'❌ Erro sincronizando comandos: {e}')
     
     if not orbs_loop.is_running():
-        orbs_loop.start()
+        try:
+            orbs_loop.start()
+            print("✅ Loop de automação iniciado")
+        except Exception as e:
+            print(f"❌ Erro iniciando loop: {e}")
+    else:
+        print("ℹ️ Loop já está rodando")
 
 @bot.tree.command(name="orbs", description="Controla automação de orbs")
 @discord.app_commands.describe(action="status, start ou stop")
@@ -235,9 +266,7 @@ async def orbs_loop():
     
     data = load_orbs_data()
     
-    if browser is None:
-        print("⚠️ Browser não está inicializado")
-        return
+    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 🔄 Ciclo de automação iniciado")
     
     async with aiohttp.ClientSession() as session:
         await respect_rate_limit()
@@ -246,14 +275,28 @@ async def orbs_loop():
         quests = await fetch_orbs_quests(session)
         
         if not quests:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] ⚠️ Nenhum quest disponível")
+            print(f"⚠️ Nenhum quest disponível ou erro na API")
+            data["last_sync"] = datetime.now().isoformat()
+            save_orbs_data(data)
             return
         
+        if isinstance(quests, dict):
+            quests = quests.get("quests", [])
+        
         if not isinstance(quests, list):
-            quests = quests.get("quests", []) if isinstance(quests, dict) else []
+            quests = []
+        
+        print(f"📋 Total de quests encontrados: {len(quests)}")
+        
+        if not quests:
+            print("⚠️ Lista de quests vazia")
+            data["last_sync"] = datetime.now().isoformat()
+            save_orbs_data(data)
+            return
         
         # Processa 1-2 quests por ciclo
-        quests_to_process = quests[:random.randint(1, 2)]
+        quests_to_process = quests[:random.randint(1, min(2, len(quests)))]
+        print(f"⚙️ Processando {len(quests_to_process)} quest(s)")
         
         for quest in quests_to_process:
             try:
