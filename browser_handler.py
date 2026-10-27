@@ -144,10 +144,20 @@ class BrowserHandler:
             
             # Verifica se existe modal "Configurar Missões (Orbs)"
             if account_token:
+                logger.info("🔍 Procurando modal de Orbs...")
                 try:
-                    await self.handle_orbs_modal(account_token)
+                    modal_found = await self.detect_orbs_modal()
+                    if modal_found:
+                        logger.info("🔐 Modal detectado — iniciando preenchimento automático...")
+                        success = await self.handle_orbs_modal(account_token)
+                        if success:
+                            logger.info("✅ Modal preenchido com sucesso!")
+                        else:
+                            logger.warning("⚠️ Falha ao preencher modal")
+                    else:
+                        logger.info("ℹ️ Modal não encontrado nesta página")
                 except Exception as e:
-                    logger.warning(f"⚠️ Erro preenchendo modal: {e}")
+                    logger.error(f"❌ Erro processando modal: {e}")
             
             # Procura iframe do game
             try:
@@ -207,21 +217,72 @@ class BrowserHandler:
             logger.error(f"❌ Erro jogando game: {e}")
             return False
     
+    async def detect_orbs_modal(self):
+        """Detecta se modal 'Configurar Missões (Orbs)' está presente"""
+        try:
+            loop = asyncio.get_event_loop()
+            
+            # Procura pelo título do modal
+            modal_selectors = [
+                "div:has(> h1:contains('Configurar Missões'))",
+                "h1:contains('Configurar Missões')",
+                "div[role='dialog']",
+                "[aria-labelledby*='Missoes'], [aria-labelledby*='Orbs']",
+            ]
+            
+            # Fallback: procura por qualquer heading com "Configurar"
+            try:
+                headings = await loop.run_in_executor(
+                    None,
+                    lambda: self.driver.find_elements(By.TAG_NAME, "h1")
+                )
+                
+                for heading in headings:
+                    try:
+                        text = await loop.run_in_executor(
+                            None,
+                            lambda h=heading: h.text
+                        )
+                        if "Configurar" in text or "Missões" in text or "Orbs" in text:
+                            logger.info(f"✓ DETECTOU MODAL: '{text}'")
+                            return True
+                    except:
+                        continue
+            except:
+                pass
+            
+            logger.warning("⚠️ Modal 'Configurar Missões' NÃO detectado")
+            return False
+        
+        except Exception as e:
+            logger.error(f"❌ Erro detectando modal: {e}")
+            return False
+    
     async def handle_orbs_modal(self, account_token):
         """Preenche modal 'Configurar Missões (Orbs)' automaticamente"""
         try:
             loop = asyncio.get_event_loop()
-            logger.info("🔧 Detectou modal 'Configurar Missões (Orbs)' — preenchendo token...")
             
+            # PRIMEIRO: verifica se modal existe
+            modal_exists = await self.detect_orbs_modal()
+            if not modal_exists:
+                logger.warning("⚠️ Modal não existe — pulando preenchimento")
+                return False
+            
+            logger.info("🔧 Preenchendo modal 'Configurar Missões (Orbs)'...")
             await asyncio.sleep(1)  # Aguarda modal renderizar
             
-            # Procura textarea/input com placeholder ou data-test-id
+            # Procura textarea/input com placeholder ou contenteditable
             input_selectors = [
-                "textarea[placeholder*='cole aqui']",
-                "input[placeholder*='cole aqui']",
+                "textarea[placeholder*='cole']",
+                "textarea[placeholder*='Token']",
+                "textarea[placeholder*='token']",
+                "input[placeholder*='cole']",
+                "input[placeholder*='Token']",
                 "textarea[aria-label*='Token']",
                 "input[aria-label*='Token']",
                 "div[contenteditable='true']",
+                "textarea:not([readonly])",
                 "textarea",
             ]
             
@@ -233,78 +294,130 @@ class BrowserHandler:
                         lambda s=selector: self.driver.find_elements(By.CSS_SELECTOR, s)
                     )
                     if elements:
-                        input_element = elements[0]
-                        logger.info(f"✓ Encontrou input: {selector}")
-                        break
+                        # Verifica se elemento é visível
+                        element = elements[0]
+                        is_visible = await loop.run_in_executor(
+                            None,
+                            lambda e=element: self.driver.execute_script(
+                                "return arguments[0].offsetParent !== null;", e
+                            )
+                        )
+                        if is_visible:
+                            input_element = element
+                            logger.info(f"✓ Input encontrado: {selector}")
+                            break
                 except:
                     continue
             
             if not input_element:
-                logger.warning("⚠️ Input field não encontrado")
+                logger.error("❌ Input field não encontrado — modal pode ter conteúdo diferente")
                 return False
             
-            # Limpa field e preenche com token
-            await loop.run_in_executor(
-                None,
-                lambda: input_element.clear()
-            )
+            logger.info("✓ Input field visível e pronto para preenchimento")
+            
+            # Limpa field
+            try:
+                await loop.run_in_executor(
+                    None,
+                    lambda: input_element.clear()
+                )
+                logger.info("✓ Input field limpo")
+            except Exception as e:
+                logger.warning(f"⚠️ Erro limpando field: {e}")
+            
             await asyncio.sleep(0.5)
             
             # Type token character by character (simula typing humano)
+            logger.info(f"⌨️ Digitando token ({len(account_token)} caracteres)...")
+            chars_typed = 0
             for char in account_token:
-                await loop.run_in_executor(
-                    None,
-                    lambda c=char: input_element.send_keys(c)
-                )
+                try:
+                    await loop.run_in_executor(
+                        None,
+                        lambda c=char: input_element.send_keys(c)
+                    )
+                    chars_typed += 1
+                    if chars_typed % 10 == 0:
+                        logger.info(f"  → {chars_typed}/{len(account_token)} caracteres")
+                except Exception as e:
+                    logger.error(f"❌ Erro digitando char: {e}")
+                    return False
                 await asyncio.sleep(random.uniform(0.05, 0.15))
             
-            logger.info(f"✓ Token preenchido ({len(account_token)} caracteres)")
+            logger.info(f"✅ Token totalmente preenchido ({chars_typed} caracteres)")
             await asyncio.sleep(0.5)
             
-            # Procura e clica botão "Enviar"
-            button_selectors = [
-                "button:has-text('Enviar')",
-                "button[type='submit']",
-                "button:contains('Enviar')",
-            ]
+            # Verifica se token foi realmente inserido
+            field_value = await loop.run_in_executor(
+                None,
+                lambda: input_element.get_attribute("value") or input_element.text
+            )
+            if len(field_value) < len(account_token) * 0.8:  # Pelo menos 80% do token
+                logger.warning(f"⚠️ Token pode não ter sido inserido corretamente ({len(field_value)}/{len(account_token)} chars)")
+            else:
+                logger.info(f"✓ Token verificado no field ({len(field_value)} caracteres)")
             
-            # Fallback: procura por texto "Enviar" em qualquer botão
+            # Procura botão "Enviar"
+            logger.info("🔍 Procurando botão 'Enviar'...")
+            
             try:
                 buttons = await loop.run_in_executor(
                     None,
                     lambda: self.driver.find_elements(By.TAG_NAME, "button")
                 )
                 
+                logger.info(f"   → Encontrados {len(buttons)} botões na página")
+                
                 submit_button = None
-                for btn in buttons:
+                for i, btn in enumerate(buttons):
                     try:
                         text = await loop.run_in_executor(
                             None,
                             lambda b=btn: b.text
                         )
-                        if "Enviar" in text:
-                            submit_button = btn
-                            break
-                    except:
+                        is_visible = await loop.run_in_executor(
+                            None,
+                            lambda b=btn: self.driver.execute_script(
+                                "return arguments[0].offsetParent !== null;", b
+                            )
+                        )
+                        
+                        if is_visible:
+                            logger.info(f"   → Botão {i}: '{text}' (visível)")
+                            if "Enviar" in text or "Submit" in text or "Confirmar" in text:
+                                submit_button = btn
+                                logger.info(f"✓ Botão 'Enviar' ENCONTRADO!")
+                                break
+                        else:
+                            logger.info(f"   → Botão {i}: '{text}' (oculto)")
+                    except Exception as e:
+                        logger.info(f"   → Botão {i}: erro ao ler ({e})")
                         continue
                 
-                if submit_button:
-                    logger.info("✓ Botão 'Enviar' encontrado — clicando...")
+                if not submit_button:
+                    logger.error("❌ Botão 'Enviar' NÃO encontrado em nenhum botão")
+                    return False
+                
+                logger.info("🖱️ Clicando botão 'Enviar'...")
+                try:
                     await loop.run_in_executor(
                         None,
                         lambda: submit_button.click()
                     )
-                    
-                    # Aguarda resposta do servidor
-                    await asyncio.sleep(2)
-                    logger.info("✅ Modal enviado com sucesso")
-                    return True
-                else:
-                    logger.warning("⚠️ Botão 'Enviar' não encontrado")
+                    logger.info("✓ Click enviado ao servidor")
+                except Exception as e:
+                    logger.error(f"❌ Erro ao clicar: {e}")
                     return False
+                
+                # Aguarda resposta do servidor
+                logger.info("⏳ Aguardando resposta do servidor (2s)...")
+                await asyncio.sleep(2)
+                
+                logger.info("✅ Modal enviado com sucesso")
+                return True
             
             except Exception as e:
-                logger.error(f"❌ Erro clicando botão: {e}")
+                logger.error(f"❌ Erro processando botão: {e}")
                 return False
         
         except asyncio.CancelledError:
