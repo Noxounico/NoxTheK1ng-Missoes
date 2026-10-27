@@ -15,18 +15,20 @@ class BrowserHandler:
         self.setup_driver()
     
     def setup_driver(self):
-        """Configura Chrome headless com anti-detection"""
+        """Configura Chrome headless com anti-detection para Railway"""
         chrome_options = Options()
         
-        # Headless + sem GUI
+        # Headless + Railway compatible
         chrome_options.add_argument("--headless=new")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--single-process")
         
         # Anti-detection
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-        chrome_options.add_argument("start-maximized")
-        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--disable-web-resources")
+        chrome_options.add_argument("--disable-extensions")
         
         # User agent humano
         user_agents = [
@@ -36,8 +38,20 @@ class BrowserHandler:
         ]
         chrome_options.add_argument(f"user-agent={random.choice(user_agents)}")
         
-        service = Service(ChromeDriverManager().install())
-        self.driver = webdriver.Chrome(service=service, options=chrome_options)
+        try:
+            # Try Railway system Chrome first
+            service = Service("/usr/bin/chromedriver")
+            self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            print("✓ Using system chromedriver")
+        except:
+            # Fallback to downloaded
+            try:
+                service = Service(ChromeDriverManager().install())
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                print("✓ Using downloaded chromedriver")
+            except Exception as e:
+                print(f"❌ Failed to initialize Chrome: {e}")
+                raise
         
         # Inject stealth JS
         self.driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
