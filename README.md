@@ -143,9 +143,26 @@ Clica "Deploy" e aguarda.
 
 Acessa Railway Dashboard para ver logs em tempo real.
 
+## 📊 Monitoramento em Tempo Real
+
+No Railway Dashboard → **Deployments** → **View logs**
+
+Procura por:
+```
+✅ Bot conectado
+📋 slash commands sincronizados
+✅ Browser inicializado
+🔄 Ciclo de automação iniciado
+📋 Total de quests encontrados: X
+🎯 Processando quest
+✅ Quest completada
+```
+
+Se não aparecer "Ciclo de automação", `/orbs start` não funcionou.
+
 ## 🔧 Troubleshooting
 
-**"Browser not initialized"** → Selenium/Chrome não instalado
+**"Automação já está rodando" mas nada acontece** → Browser falhou silenciosamente
 - Railway Dockerfile instala automaticamente
 - Local: `pip install selenium webdriver-manager`
 
