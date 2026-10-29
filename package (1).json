@@ -1,0 +1,19 @@
+{
+  "name": "impulsos-scraper",
+  "version": "1.0.0",
+  "description": "Puppeteer-based scraper for impulsos.fun automation",
+  "main": "impulsos_scraper.js",
+  "type": "module",
+  "scripts": {
+    "start": "node impulsos_scraper.js",
+    "dev": "nodemon impulsos_scraper.js"
+  },
+  "dependencies": {
+    "puppeteer": "^20.7.0",
+    "axios": "^1.5.0",
+    "socket.io-client": "^4.6.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
